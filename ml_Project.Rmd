@@ -1,0 +1,107 @@
+---
+title: 'Coursera Practical Machine Learning Prediction Assignment: Activity Proficiency'
+author: "Christopher Marth"
+date: "February 13, 2016"
+output: html_document
+---
+
+# Executive Summary
+In the following analysis we produce a predictive model to assess the proficiency of subjects when it comes to peforming certain fitness activities. Data for this analysis came from the Human Activity Recognition project, which is part of Groupware Technologies. Using a standard data set made available from the source, we apply fundamental data analysis tasks to arrive at a set of predictive models that can be used to assess activity proficiency. Analysis includes commentary of how and why each decision in the analysis was made for pedagogical purposes. This analysis was performed as part of the course assignment for the Coursera Practical Machine Learning course assignment.
+
+# Getting and Cleaning Data
+
+The original data used for the analysis was made available here: http://groupware.les.inf.puc-rio.br/har. Training and testing sets for modeling purposes where also provided at the following locations: Training set - https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv; Testing set - https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv. After acquiring the data, a basic data cleansing approach was employed to produce an appropriate training data set to be used for further analysis.
+
+First, any features that had mostly missing data where removed. This eliminated 100 of the 160 features in the original data set.
+```{r}
+# Load in the data
+testing = read.csv("/Users/racerx/Projects/coursera/machineLearning/pml-testing.csv")
+training = read.csv("/Users/racerx/Projects/coursera/machineLearning/pml-training.csv")
+
+# Clean up the data - Remove any columns that are mostly NA or empty
+cleaned <- training[,colSums(is.na(training)) < nrow(training)*0.9]
+cleaned <- cleaned[,colSums(cleaned == "") < nrow(training)*0.9]
+```
+
+Next, near-zero covariates were removed from the data, and there was only one: "new_window"
+```{r}
+# Look for zero covariates
+library(caret)
+set.seed(32433)
+nsv <- nearZeroVar(cleaned,saveMetrics=TRUE)
+nsv
+cleaned$new_window <- NULL
+```
+
+Finally, it was decided to remove the feature 'X' as it was merely an index variable for each case number and would add no insight to the analysis.
+```{r}
+cleaned$X <- NULL
+```
+
+# Exploratory Analysis
+With the data set cleaned, exploratory analysis was performed in an attempt to gain an understanding of how the predictors might impact the outcome in question, specifically the variable "classe". Given the large number of predictors, and the brevity we are trying to achieve with this report, only a small subset of the exploration is shown here. All exploration was done after first dividing the cleaned training set into additional training and test subsets in order to allow for cross-validation later on in the analysis.
+
+```{r}
+inTrain <- createDataPartition(y=cleaned$classe, p=0.10, list=FALSE)
+cleaned_train <- cleaned[inTrain,]
+cleaned_test <- cleaned[-inTrain,]
+```
+
+From there we perform basic exploratory analysis. An example of some of the analysis is given here:
+```{r}
+# Get a summary of the data set to get basic description for each predictor
+summary(cleaned_train)
+```
+
+```{r, echo=FALSE}
+# Look at a histogram of the outcome variable
+histogram(cleaned_train$classe, main="Classe Distribution", xlab="Classe", ylab="Count")
+# Look at some feature plots
+featurePlot(x=cleaned_train[,c("user_name","num_window")], y=cleaned_train$classe, plot="pairs")
+qplot(user_name,roll_belt,colour=classe,data=cleaned_train)
+```
+
+# Predictive Model Analysis
+## Random Forest with all predictors
+The initial approach to create a predictive model was to employ a random forest predicting the outcome variable "classe" using the complete set of predictors. A random forest was chosen due to its ability to predict with with high accuracy with a large number of predictors with potentially non-linear relationships to the outcome variable. Prediction results for the training subset derived from the cleaned training set are shown first which are then cross-validated against the test subset.
+
+```{r, cache=TRUE}
+modFit <- train(classe~.,method="rf",data=cleaned_train)
+```
+
+The prediction accuracy on the training and test sets are given here:
+```{r}
+# Prediction Accuracy on the training set
+prediction_train <- predict(modFit, cleaned_train)
+correct_train <- prediction_train == cleaned_train$classe
+accuracy_train <- length(prediction_train[correct_train])/length(prediction_train)
+accuracy_train
+confusionMatrix(cleaned_train$classe, predict(modFit,cleaned_train))
+
+# Prediction Accuracy on the test set
+prediction_test <- predict(modFit, cleaned_test)
+correct_test <- prediction_test == cleaned_test$classe
+accuracy_test <- length(prediction_test[correct_test])/length(prediction_test)
+accuracy_test
+confusionMatrix(cleaned_test$classe, predict(modFit,cleaned_test))
+```
+
+Since this level of accuracy was acceptable to meet the requirements for the assignment quiz (80% accuracy required), this model was used to predict the outcome for the original test set for that purpose.
+
+## Principle Components Analysis (PCA)
+In an attempt to reduce the number of predictors, and thus allow the creation of the predictive model to happen much faster (we had no performance requirement for the model, but anecdotally it did take a long time to solve for the original random forest model using all predictors), we applied PCA to pre-process the training. The details of that analysis are shown here:
+
+```{r, cache=TRUE}
+modFitPca <- train(classe~.,method="rf", preProcess="pca", data=cleaned_train)
+prediction_test <- predict(modFitPca, cleaned_test)
+correct_test <- prediction_test == cleaned_test$classe
+accuracy_test <- length(prediction_test[correct_test])/length(prediction_test)
+accuracy_test
+confusionMatrix(cleaned_test$classe, predict(modFitPca,cleaned_test))
+```
+
+We see that this model gives up a bit in terms of accuracy with the added benefit of computing the predictive model much faster - roughly one order of magnitude. 
+
+# Conclusion
+Either of the predictive models generated in the analysis could mostly be used to predict "classe" in the general case. If, however, performance requirements are such that speed of prediction is important, the PCA model would be a better choice.
+
